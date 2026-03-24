@@ -1,9 +1,20 @@
 # Estágio 1: Build da aplicação React
 FROM node:20-alpine as build
 WORKDIR /app
+
+# Copia os arquivos de dependência
 COPY package*.json ./
+
+# Instala as dependências listadas
 RUN npm install
+
+# GARANTIA: Força a instalação das bibliotecas extras usadas no App.jsx
+RUN npm install lucide-react tailwindcss postcss autoprefixer
+
+# Copia o resto do código
 COPY . .
+
+# Executa o build
 RUN npm run build
 
 # Estágio 2: Servir com Nginx
