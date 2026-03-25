@@ -9,7 +9,7 @@ COPY package*.json ./
 RUN npm install
 
 # GARANTIA: Força a instalação das bibliotecas extras usadas no App.jsx
-RUN npm install lucide-react tailwindcss postcss autoprefixer
+RUN npm install lucide-react tailwindcss postcss autoprefixer html2canvas jspdf
 
 # Copia o resto do código
 COPY . .

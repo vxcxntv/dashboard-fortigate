@@ -1,3 +1,5 @@
+/* eslint-disable no-unused-vars */
+/* eslint-disable no-useless-escape */
 import React, { useState, useMemo, useRef } from 'react';
 import { 
   UploadCloud, 
