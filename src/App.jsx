@@ -1,6 +1,4 @@
-/* eslint-disable no-useless-escape */
-/* eslint-disable no-unused-vars */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   UploadCloud, 
   Activity, 
@@ -9,12 +7,15 @@ import {
   Globe, 
   ShieldAlert,
   AlertCircle,
-  FileText
+  FileText,
+  Download,
+  FileDown
 } from 'lucide-react';
+import html2canvas from 'https://esm.sh/html2canvas';
+import { jsPDF } from 'https://esm.sh/jspdf';
 
 // --- Utilitários de Processamento de Dados ---
 
-// Função para formatar bytes em KB, MB, GB
 const formatBytes = (bytes, decimals = 2) => {
   if (!+bytes) return '0 Bytes';
   const k = 1024;
@@ -24,7 +25,6 @@ const formatBytes = (bytes, decimals = 2) => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 };
 
-// Função para formatar duração em formato legível
 const formatDuration = (seconds) => {
   if (!seconds) return '0s';
   const h = Math.floor(seconds / 3600);
@@ -35,7 +35,6 @@ const formatDuration = (seconds) => {
   return `${s}s`;
 };
 
-// Parser do formato de log do Fortinet (chave=valor ou chave="valor com espaco")
 const parseFortiLog = (text) => {
   const lines = text.split('\n');
   const data = [];
@@ -54,15 +53,10 @@ const parseFortiLog = (text) => {
     }
     
     if (Object.keys(entry).length > 0) {
-      // Tenta identificar o alvo principal (Site, App ou Serviço)
       entry._target = entry.hostname || entry.app || entry.dstinetsvc || entry.dstip || 'Desconhecido';
-      
-      // Converte bytes para inteiros
       entry._sentbyte = parseInt(entry.sentbyte || 0, 10);
       entry._rcvdbyte = parseInt(entry.rcvdbyte || 0, 10);
       entry._totalbyte = entry._sentbyte + entry._rcvdbyte;
-      
-      // Converte duração
       entry._duration = parseInt(entry.duration || 0, 10);
       
       data.push(entry);
@@ -86,7 +80,7 @@ const StatCard = ({ title, value, subtitle, icon: Icon, colorClass }) => (
   </div>
 );
 
-const ProgressBarChart = ({ data, title, valueFormatter, labelKey = 'name', valueKey = 'value', colorClass = 'bg-blue-500' }) => {
+const ProgressBarChart = ({ data, title, valueFormatter, labelKey = 'name', valueKey = 'value', colorClass = 'bg-blue-500', isExporting = false }) => {
   if (!data || data.length === 0) return null;
   
   const maxValue = Math.max(...data.map(d => d[valueKey]));
@@ -94,8 +88,8 @@ const ProgressBarChart = ({ data, title, valueFormatter, labelKey = 'name', valu
   return (
     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
       <h3 className="text-lg font-semibold text-slate-800 mb-4">{title}</h3>
-      {/* Container com scroll para suportar os 50 itens sem quebrar a tela */}
-      <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+      {/* Se estiver exportando, removemos a rolagem para que o canvas capture todos os itens da lista */}
+      <div className={`space-y-4 pr-2 ${!isExporting ? 'max-h-[600px] overflow-y-auto custom-scrollbar' : ''}`}>
         {data.map((item, index) => {
           const percentage = maxValue > 0 ? (item[valueKey] / maxValue) * 100 : 0;
           return (
@@ -127,8 +121,12 @@ const ProgressBarChart = ({ data, title, valueFormatter, labelKey = 'name', valu
 export default function App() {
   const [logs, setLogs] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [error, setError] = useState(null);
   const [fileName, setFileName] = useState('');
+  
+  // Referência para capturar o Dashboard no PDF
+  const dashboardRef = useRef(null);
 
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
@@ -159,7 +157,6 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  // Memoização das métricas processadas para performance
   const metrics = useMemo(() => {
     if (logs.length === 0) return null;
 
@@ -177,7 +174,6 @@ export default function App() {
       
       if (log.user) userSet.add(log.user.toLowerCase());
 
-      // Agrupa por Aplicação/Site
       const target = log._target;
       if (!appsMap[target]) {
         appsMap[target] = { name: target, sessions: 0, bytes: 0, duration: 0 };
@@ -186,7 +182,6 @@ export default function App() {
       appsMap[target].bytes += log._totalbyte;
       appsMap[target].duration += log._duration;
 
-      // Agrupa por Categoria
       const category = log.appcat || 'Não Categorizado';
       if (!categoriesMap[category]) {
         categoriesMap[category] = { name: category, sessions: 0, bytes: 0 };
@@ -194,7 +189,6 @@ export default function App() {
       categoriesMap[category].sessions += 1;
       categoriesMap[category].bytes += log._totalbyte;
 
-      // Agrupa por Risco
       const risk = log.apprisk || 'Desconhecido';
       if (!riskMap[risk]) {
         riskMap[risk] = { name: risk, sessions: 0 };
@@ -202,8 +196,8 @@ export default function App() {
       riskMap[risk].sessions += 1;
     });
 
-    // Ordenações para os Top 50
-    const topAppsBySessions = Object.values(appsMap).sort((a, b) => b.sessions - a.sessions).slice(0, 50);
+    const allApps = Object.values(appsMap).sort((a, b) => b.sessions - a.sessions);
+    const topAppsBySessions = allApps.slice(0, 50);
     const topAppsByBytes = Object.values(appsMap).sort((a, b) => b.bytes - a.bytes).slice(0, 50);
     const topCategories = Object.values(categoriesMap).sort((a, b) => b.bytes - a.bytes).slice(0, 5);
     const riskLevels = Object.values(riskMap).sort((a, b) => b.sessions - a.sessions);
@@ -214,12 +208,89 @@ export default function App() {
       totalDuration,
       uniqueUsers: userSet.size,
       mainUser: Array.from(userSet)[0] || 'Desconhecido',
+      allApps, 
       topAppsBySessions,
       topAppsByBytes,
       topCategories,
       riskLevels
     };
   }, [logs]);
+
+  // Função para exportar os dados consolidados para CSV
+  const handleExportCSV = () => {
+    if (!metrics || !metrics.allApps) return;
+
+    const headers = ['Aplicacao/Site', 'Sessoes', 'Trafego_Total_Bytes', 'Trafego_Formatado', 'Duracao_Total_Segundos'];
+    
+    const csvRows = metrics.allApps.map(app => {
+      return [
+        `"${app.name}"`, 
+        app.sessions,
+        app.bytes,
+        `"${formatBytes(app.bytes)}"`, 
+        app.duration
+      ].join(',');
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(','), ...csvRows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `analise_trafego_${metrics.mainUser}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Função para exportar o Dashboard visual para PDF
+  const handleExportPDF = () => {
+    if (!metrics || !dashboardRef.current) return;
+    
+    // Ativa o estado de exportação para expandir as divs (remover scroll)
+    setIsExportingPDF(true);
+
+    // Aguarda um instante para o React renderizar a tela sem os scrolls
+    setTimeout(async () => {
+      try {
+        const canvas = await html2canvas(dashboardRef.current, {
+          scale: 2, // Maior qualidade de imagem
+          backgroundColor: '#f8fafc', // Cor de fundo do painel
+          useCORS: true
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        
+        // Cálculos para manter a proporção da imagem na folha A4
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+        let heightLeft = imgHeight;
+        let position = 0;
+
+        // Adiciona a primeira página
+        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
+        heightLeft -= pageHeight;
+
+        // Adiciona novas páginas se o dashboard for mais comprido que uma folha A4
+        while (heightLeft > 0) {
+          position = heightLeft - imgHeight;
+          pdf.addPage();
+          pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
+          heightLeft -= pageHeight;
+        }
+
+        pdf.save(`relatorio_trafego_${metrics.mainUser}.pdf`);
+      } catch (err) {
+        console.error("Erro ao gerar PDF:", err);
+        setError("Ocorreu um erro ao gerar o PDF. Tente novamente.");
+      } finally {
+        // Restaura a rolagem da tela
+        setIsExportingPDF(false);
+      }
+    }, 300);
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 md:p-8">
@@ -237,7 +308,36 @@ export default function App() {
             </p>
           </div>
           
-          <div className="flex items-center">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Botões de Exportação */}
+            {metrics && (
+              <>
+                <button 
+                  onClick={handleExportCSV}
+                  disabled={isExportingPDF}
+                  className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50"
+                  title="Exportar dados brutos em CSV"
+                >
+                  <Download className="w-5 h-5" />
+                  <span className="hidden sm:inline">CSV</span>
+                </button>
+
+                <button 
+                  onClick={handleExportPDF}
+                  disabled={isExportingPDF}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50"
+                  title="Exportar visualização em PDF"
+                >
+                  {isExportingPDF ? (
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  ) : (
+                    <FileDown className="w-5 h-5" />
+                  )}
+                  <span className="hidden sm:inline">PDF</span>
+                </button>
+              </>
+            )}
+
             <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2 shadow-sm">
               <UploadCloud className="w-5 h-5" />
               <span>Carregar Log (.txt)</span>
@@ -279,9 +379,9 @@ export default function App() {
           </div>
         )}
 
-        {/* Dashboard com Dados Processados */}
+        {/* Dashboard com Dados Processados - Referência para o PDF */}
         {!isProcessing && metrics && (
-          <div className="space-y-6 animate-in fade-in duration-500">
+          <div ref={dashboardRef} className="space-y-6 animate-in fade-in duration-500 p-2 bg-slate-50">
             
             <div className="flex items-center gap-2 text-sm text-slate-500 bg-white py-2 px-4 rounded-lg border border-slate-200 inline-flex">
               <FileText className="w-4 h-4" />
@@ -315,7 +415,7 @@ export default function App() {
               />
               <StatCard 
                 title="Sites / Apps Únicos" 
-                value={Object.keys(metrics.topAppsBySessions).length} 
+                value={Object.keys(metrics.allApps).length} 
                 subtitle="Destinos diferentes acessados"
                 icon={Globe}
                 colorClass="bg-amber-500 text-amber-600"
@@ -330,6 +430,7 @@ export default function App() {
                 valueKey="sessions"
                 valueFormatter={(val) => `${val} acessos`}
                 colorClass="bg-blue-500"
+                isExporting={isExportingPDF}
               />
               <ProgressBarChart 
                 title="Top 50 Sites/Apps que Mais Consumiram Banda" 
@@ -337,6 +438,7 @@ export default function App() {
                 valueKey="bytes"
                 valueFormatter={(val) => formatBytes(val)}
                 colorClass="bg-indigo-500"
+                isExporting={isExportingPDF}
               />
             </div>
 
@@ -348,6 +450,7 @@ export default function App() {
                 valueKey="bytes"
                 valueFormatter={(val) => formatBytes(val)}
                 colorClass="bg-emerald-500"
+                isExporting={isExportingPDF}
               />
               
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
@@ -357,7 +460,6 @@ export default function App() {
                 </h3>
                 <div className="space-y-4">
                   {metrics.riskLevels.map((item, index) => {
-                    // Define cor baseada no nome do risco (elevated, high, medium, low)
                     let barColor = "bg-slate-400";
                     let riskName = item.name.toLowerCase();
                     if (riskName.includes('high') || riskName.includes('elevated')) barColor = "bg-rose-500";
