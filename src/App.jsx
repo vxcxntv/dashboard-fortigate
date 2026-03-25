@@ -13,8 +13,7 @@ import {
   Download,
   FileDown
 } from 'lucide-react';
-// Importações corrigidas para o ambiente Vite/Node.js
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 
 // --- Utilitários de Processamento de Dados ---
@@ -91,7 +90,6 @@ const ProgressBarChart = ({ data, title, valueFormatter, labelKey = 'name', valu
   return (
     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
       <h3 className="text-lg font-semibold text-slate-800 mb-4">{title}</h3>
-      {/* Se estiver exportando, removemos a rolagem para que o canvas capture todos os itens da lista */}
       <div className={`space-y-4 pr-2 ${!isExporting ? 'max-h-[600px] overflow-y-auto custom-scrollbar' : ''}`}>
         {data.map((item, index) => {
           const percentage = maxValue > 0 ? (item[valueKey] / maxValue) * 100 : 0;
@@ -128,7 +126,6 @@ export default function App() {
   const [error, setError] = useState(null);
   const [fileName, setFileName] = useState('');
   
-  // Referência para capturar o Dashboard no PDF
   const dashboardRef = useRef(null);
 
   const handleFileUpload = (event) => {
@@ -219,7 +216,6 @@ export default function App() {
     };
   }, [logs]);
 
-  // Função para exportar os dados consolidados para CSV
   const handleExportCSV = () => {
     if (!metrics || !metrics.allApps) return;
 
@@ -246,38 +242,32 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  // Função para exportar o Dashboard visual para PDF
   const handleExportPDF = () => {
     if (!metrics || !dashboardRef.current) return;
     
-    // Ativa o estado de exportação para expandir as divs (remover scroll)
     setIsExportingPDF(true);
 
-    // Aguarda um instante a mais (500ms) para o React renderizar a tela completa sem os scrolls
     setTimeout(async () => {
       try {
-        const canvas = await html2canvas(dashboardRef.current, {
-          scale: 2, // Maior qualidade de imagem
-          backgroundColor: '#f8fafc', // Cor de fundo do painel
-          useCORS: true,
-          logging: false
+        const el = dashboardRef.current;
+        
+        // Usando html-to-image no lugar do html2canvas para suportar Tailwind v4 (oklch)
+        const imgData = await toPng(el, {
+          pixelRatio: 2, 
+          backgroundColor: '#f8fafc',
         });
 
-        const imgData = canvas.toDataURL('image/png');
         const pdf = new jsPDF('p', 'mm', 'a4');
         
-        // Cálculos para manter a proporção da imagem na folha A4
         const pdfWidth = pdf.internal.pageSize.getWidth();
         const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+        const imgHeight = (el.offsetHeight * pdfWidth) / el.offsetWidth;
         let heightLeft = imgHeight;
         let position = 0;
 
-        // Adiciona a primeira página
         pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
         heightLeft -= pageHeight;
 
-        // Adiciona novas páginas se o dashboard for mais comprido que uma folha A4
         while (heightLeft > 0) {
           position = heightLeft - imgHeight;
           pdf.addPage();
@@ -287,20 +277,18 @@ export default function App() {
 
         pdf.save(`relatorio_trafego_${metrics.mainUser}.pdf`);
       } catch (err) {
-        console.error("Erro ao gerar PDF:", err);
-        setError("Ocorreu um erro ao gerar o PDF. Verifique o console para mais detalhes.");
+        console.error("ERRO COMPLETO AO GERAR PDF:", err);
+        setError("Ocorreu um erro ao gerar o PDF. Verifique o console do navegador para mais detalhes.");
       } finally {
-        // Restaura a rolagem da tela
         setIsExportingPDF(false);
       }
-    }, 500); // Aumentei o timeout para 500ms para garantir estabilidade da tela
+    }, 500); 
   };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Cabeçalho */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 flex items-center gap-2">
@@ -313,7 +301,6 @@ export default function App() {
           </div>
           
           <div className="flex flex-wrap items-center gap-3">
-            {/* Botões de Exportação */}
             {metrics && (
               <>
                 <button 
@@ -355,7 +342,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Mensagens de Status */}
         {error && (
           <div className="bg-red-50 text-red-700 p-4 rounded-lg flex items-center gap-3 border border-red-200">
             <AlertCircle className="w-5 h-5" />
@@ -370,7 +356,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Estado Inicial (Sem dados) */}
         {!isProcessing && logs.length === 0 && !error && (
           <div className="flex flex-col items-center justify-center p-16 bg-white rounded-xl border border-slate-200 border-dashed shadow-sm text-center">
             <div className="bg-blue-50 p-4 rounded-full mb-4">
@@ -383,7 +368,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Dashboard com Dados Processados - Referência para o PDF */}
         {!isProcessing && metrics && (
           <div ref={dashboardRef} className="space-y-6 animate-in fade-in duration-500 p-2 bg-slate-50">
             
@@ -394,7 +378,6 @@ export default function App() {
               Usuário Principal Identificado: <strong className="uppercase">{metrics.mainUser}</strong>
             </div>
 
-            {/* Cards de Resumo */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard 
                 title="Total de Conexões" 
@@ -426,7 +409,6 @@ export default function App() {
               />
             </div>
 
-            {/* Gráficos Principais */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <ProgressBarChart 
                 title="Top 50 Sites/Apps Mais Acessados (Por Volume de Acessos)" 
@@ -446,7 +428,6 @@ export default function App() {
               />
             </div>
 
-            {/* Gráficos Secundários */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <ProgressBarChart 
                 title="Principais Categorias de Tráfego" 
