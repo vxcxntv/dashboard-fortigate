@@ -1,5 +1,5 @@
-/* eslint-disable no-unused-vars */
 /* eslint-disable no-useless-escape */
+/* eslint-disable no-unused-vars */
 import React, { useState, useMemo, useRef } from 'react';
 import { 
   UploadCloud, 
@@ -13,8 +13,9 @@ import {
   Download,
   FileDown
 } from 'lucide-react';
-import html2canvas from 'https://esm.sh/html2canvas';
-import { jsPDF } from 'https://esm.sh/jspdf';
+// Importações corrigidas para o ambiente Vite/Node.js
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 // --- Utilitários de Processamento de Dados ---
 
@@ -252,13 +253,14 @@ export default function App() {
     // Ativa o estado de exportação para expandir as divs (remover scroll)
     setIsExportingPDF(true);
 
-    // Aguarda um instante para o React renderizar a tela sem os scrolls
+    // Aguarda um instante a mais (500ms) para o React renderizar a tela completa sem os scrolls
     setTimeout(async () => {
       try {
         const canvas = await html2canvas(dashboardRef.current, {
           scale: 2, // Maior qualidade de imagem
           backgroundColor: '#f8fafc', // Cor de fundo do painel
-          useCORS: true
+          useCORS: true,
+          logging: false
         });
 
         const imgData = canvas.toDataURL('image/png');
@@ -286,12 +288,12 @@ export default function App() {
         pdf.save(`relatorio_trafego_${metrics.mainUser}.pdf`);
       } catch (err) {
         console.error("Erro ao gerar PDF:", err);
-        setError("Ocorreu um erro ao gerar o PDF. Tente novamente.");
+        setError("Ocorreu um erro ao gerar o PDF. Verifique o console para mais detalhes.");
       } finally {
         // Restaura a rolagem da tela
         setIsExportingPDF(false);
       }
-    }, 300);
+    }, 500); // Aumentei o timeout para 500ms para garantir estabilidade da tela
   };
 
   return (
